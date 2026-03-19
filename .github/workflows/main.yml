@@ -20,7 +20,7 @@ jobs:
       - name: Checkout OPA Policies Repository
         uses: actions/checkout@v4
         with:
-          repository: 'tu-usuario/opa-policies-workshop' 
+          repository: 'RicNuva18/opa-policies-workshop' 
           path: 'opa-policies'
 
       - name: Configure AWS Credentials
@@ -56,7 +56,7 @@ jobs:
           
           for POLICY in "${POLICIES[@]}"; do
             echo "----------------------------------------"
-            echo "🔍 Evaluando política: $POLICY"
+            echo "Evaluando política: $POLICY"
             
             RESULT=$(opa eval --format pretty --data opa-policies/policies/ec2/$POLICY.rego --input tfplan.json "data.opentofu.ec2.$POLICY.main")
             
@@ -71,10 +71,10 @@ jobs:
           echo "----------------------------------------"
           
           if [ $HAS_ERRORS -eq 1 ]; then
-            echo "🚨 Pipeline bloqueado: El plan de infraestructura no cumple con las políticas de seguridad."
+            echo "Pipeline bloqueado: El plan de infraestructura no cumple con las políticas de seguridad."
             exit 1
           else
-            echo "🎉 Todas las políticas pasaron exitosamente. Plan seguro."
+            echo "Todas las políticas pasaron exitosamente. Plan seguro."
           fi
 
   deploy:
