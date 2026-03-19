@@ -1,0 +1,105 @@
+name: CI/CD OpenTofu & OPA
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  plan-and-evaluate:
+    name: Plan IaC & OPA Policy Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout IaC Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout OPA Policies Repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'tu-usuario/opa-policies-workshop' 
+          path: 'opa-policies'
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu-version: latest
+
+      - name: OpenTofu Init & Plan
+        id: plan
+        run: |
+          tofu init
+          tofu plan -out=tfplan.binary
+          tofu show -json tfplan.binary > tfplan.json
+
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: Evaluate OPA Policies
+        run: |
+          echo "Iniciando evaluación de seguridad con OPA..."
+          
+          POLICIES=("instances_in_priv_subnet" "mandatory_tags" "no_ssh_ports")
+          HAS_ERRORS=0
+          
+          for POLICY in "${POLICIES[@]}"; do
+            echo "----------------------------------------"
+            echo "🔍 Evaluando política: $POLICY"
+            
+            RESULT=$(opa eval --format pretty --data opa-policies/policies/ec2/$POLICY.rego --input tfplan.json "data.opentofu.ec2.$POLICY.main")
+            
+            if [ "$RESULT" = "true" ]; then
+              echo "PASS: Cumple con $POLICY"
+            else
+              echo "FAIL: Violación detectada en $POLICY (Resultado: $RESULT)"
+              HAS_ERRORS=1
+            fi
+          done
+          
+          echo "----------------------------------------"
+          
+          if [ $HAS_ERRORS -eq 1 ]; then
+            echo "🚨 Pipeline bloqueado: El plan de infraestructura no cumple con las políticas de seguridad."
+            exit 1
+          else
+            echo "🎉 Todas las políticas pasaron exitosamente. Plan seguro."
+          fi
+
+  deploy:
+    name: Apply Infrastructure
+    needs: plan-and-evaluate
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+      - name: Checkout IaC Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu-version: latest
+
+      - name: OpenTofu Init & Apply
+        run: |
+          tofu init
+          tofu apply -auto-approve
