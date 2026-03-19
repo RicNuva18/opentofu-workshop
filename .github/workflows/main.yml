@@ -28,7 +28,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
@@ -38,7 +38,11 @@ jobs:
       - name: OpenTofu Init & Plan
         id: plan
         run: |
-          tofu init
+          tofu init \
+            -backend-config="bucket=${{ secrets.BACKEND_BUCKET }}" \
+            -backend-config="key=${{ secrets.BACKEND_KEY }}" \
+            -backend-config="region=${{ secrets.AWS_REGION }}"
+          
           tofu plan -out=tfplan.binary
           tofu show -json tfplan.binary > tfplan.json
 
@@ -51,22 +55,27 @@ jobs:
         run: |
           echo "Iniciando evaluación de seguridad con OPA..."
           
-          POLICIES=("instances_in_priv_subnet" "mandatory_tags" "no_ssh_ports")
           HAS_ERRORS=0
           
-          for POLICY in "${POLICIES[@]}"; do
+          while IFS= read -r POLICY_PATH; do
+            FILENAME=$(basename "$POLICY_PATH")
             echo "----------------------------------------"
-            echo "Evaluando política: $POLICY"
+            echo "Evaluando política: $FILENAME"
             
-            RESULT=$(opa eval --format pretty --data opa-policies/policies/ec2/$POLICY.rego --input tfplan.json "data.opentofu.ec2.$POLICY.main")
+            PACKAGE_NAME=$(awk '/^package/ {print $2; exit}' "$POLICY_PATH" | tr -d '\r')
+            
+            OPA_QUERY="data.${PACKAGE_NAME}.main"
+            echo "Ruta de consulta: $OPA_QUERY"
+            
+            RESULT=$(opa eval --format pretty --data "$POLICY_PATH" --input tfplan.json "$OPA_QUERY")
             
             if [ "$RESULT" = "true" ]; then
-              echo "PASS: Cumple con $POLICY"
+              echo "PASS: Cumple con $FILENAME"
             else
-              echo "FAIL: Violación detectada en $POLICY (Resultado: $RESULT)"
+              echo "FAIL: Violación detectada en $FILENAME (Resultado: $RESULT)"
               HAS_ERRORS=1
             fi
-          done
+          done < <(find opa-policies -type f -name "*.rego")
           
           echo "----------------------------------------"
           
@@ -92,7 +101,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Setup OpenTofu
         uses: opentofu/setup-opentofu@v1
@@ -101,5 +110,8 @@ jobs:
 
       - name: OpenTofu Init & Apply
         run: |
-          tofu init
+          tofu init \
+            -backend-config="bucket=${{ secrets.BACKEND_BUCKET }}" \
+            -backend-config="key=${{ secrets.BACKEND_KEY }}" \
+            -backend-config="region=${{ secrets.AWS_REGION }}"
           tofu apply -auto-approve
