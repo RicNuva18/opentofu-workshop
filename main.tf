@@ -1,3 +1,4 @@
+/**
 resource "aws_vpc" "main" {
   cidr_block = var.vpc_cidr
   tags       = var.mandatory_tags
@@ -31,3 +32,4 @@ resource "aws_instance" "test_compliant" {
   associate_public_ip_address = false
   tags                        = var.mandatory_tags
 }
+**/
